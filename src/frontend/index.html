@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Můj Kalendář</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="auth-section" class="auth-container">
+        <div class="auth-box">
+            <h1>Kalendář</h1>
+            
+            <div id="login-form">
+                <h2>Přihlášení</h2>
+                <input type="text" id="loginUsername" placeholder="Uživatelské jméno">
+                <input type="password" id="loginPassword" placeholder="Heslo">
+                <button onclick="AuthController.login()" class="primary-btn">Přihlásit se</button>
+                <p>Nemáte účet? <a href="#" onclick="AuthController.toggleForms()">Registrovat se</a></p>
+            </div>
+
+            <div id="register-form" style="display: none;">
+                <h2>Nová registrace</h2>
+                <input type="text" id="regUsername" placeholder="Uživatelské jméno">
+                <input type="password" id="regPassword" placeholder="Heslo">
+                <button onclick="AuthController.register()" class="secondary-btn">Vytvořit účet</button>
+                <p>Máte účet? <a href="#" onclick="AuthController.toggleForms()">Přihlásit se</a></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-section" class="calendar-container" style="display: none;">
+        <header>
+            <div class="header-left">
+                <h2 id="monthDisplay">Leden 2026</h2>
+                <span id="currentUserDisplay" class="user-badge"></span>
+            </div>
+            <div class="nav-buttons">
+                <button onclick="CalendarController.showAllReminders()" title="Seznam všech úkolů" style="margin-right: 10px;">📋</button>
+                <button onclick="ThemeController.toggle()" id="themeBtn" title="Přepnout režim" style="margin-right: 15px; font-size: 20px;">🌙</button>
+                <button onclick="CalendarController.goToToday()" style="font-size: 14px; margin-right: 10px;">Dnes</button>
+                <button onclick="CalendarController.changeMonth(-1)">&#10094;</button>
+                <button onclick="CalendarController.changeMonth(1)">&#10095;</button>
+                <button onclick="AuthController.logout()" class="logout-btn">Odhlásit</button>
+            </div>
+        </header>
+
+        <div class="days-header">
+            <div>Po</div>
+            <div>Út</div>
+            <div>St</div>
+            <div>Čt</div>
+            <div>Pá</div>
+            <div>So</div>
+            <div>Ne</div>
+        </div>
+
+        <div class="calendar-grid" id="calendarGrid">
+            </div>
+    </div>
+
+    <div id="allRemindersModal" class="modal">
+        <div class="modal-content" style="max-width: 500px; max-height: 80vh; overflow-y: auto;">
+            <h3>Všechny mé úkoly</h3>
+
+            <input type="text" id="searchAllInput" placeholder="🔍 Hledat úkol..." 
+                   oninput="CalendarController.handleSearch(this)" 
+                   style="margin-bottom: 10px; border: 1px solid #ddd;">
+            
+            <div id="filterContainer" class="filter-bar">
+            </div>
+            <div id="allRemindersList" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+            </div>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button onclick="document.getElementById('allRemindersModal').style.display='none'" class="secondary-btn">Zavřít</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="reminderModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle">Nová událost</h3>
+            
+            <input type="hidden" id="reminderId"> 
+            
+            <input type="text" id="reminderTitle" placeholder="Co se děje? (Název)" autocomplete="off" oninput="CalendarController.validateForm()">
+            <input type="text" id="reminderDesc" placeholder="Popis (volitelné)" autocomplete="off">
+            
+            <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 15px;">
+                <div style="flex-grow: 1;">
+                    <label style="font-size: 12px; color: #888; display: block; margin-bottom: 5px;">Čas</label>
+                    <input type="time" id="reminderTime" style="margin: 0; width: 100%;">
+                </div>
+                
+                <div style="display: flex; align-items: center; margin-top: 18px;">
+                    <input type="checkbox" id="reminderAllDay" onchange="CalendarController.toggleTimeInput()" style="width: 20px; height: 20px; margin-right: 8px;">
+                    <label for="reminderAllDay" style="margin: 0; font-size: 14px;">Celý den</label>
+                </div>
+            </div>
+
+            <div class="color-selection-section">
+                <label>Barva kategorie: <span id="activeColorLabel" style="font-weight: normal; color: var(--text-secondary); margin-left: 5px;">Práce</span></label>
+                
+                <div class="color-options">
+                    <div class="color-circle selected" style="background: #007AFF;" data-color="#007AFF" data-name="Práce" onclick="CalendarController.selectColor(this)" title="Práce"></div>
+                    
+                    <div class="color-circle" style="background: #34C759;" data-color="#34C759" data-name="Osobní" onclick="CalendarController.selectColor(this)" title="Osobní"></div>
+                    
+                    <div class="color-circle" style="background: #FF3B30;" data-color="#FF3B30" data-name="Důležité" onclick="CalendarController.selectColor(this)" title="Důležité"></div>
+                    
+                    <div class="color-circle" style="background: #FF9500;" data-color="#FF9500" data-name="Ostatní" onclick="CalendarController.selectColor(this)" title="Ostatní"></div>
+                    
+                    <div class="color-circle" style="background: #AF52DE;" data-color="#AF52DE" data-name="Zábava" onclick="CalendarController.selectColor(this)" title="Zábava"></div>
+                    
+                    <div class="custom-color-wrapper">
+                        <input type="color" id="customColorInput" onchange="CalendarController.selectCustomColor(this)">
+                        <span style="font-size: 10px; margin-left: 5px;">Vlastní</span>
+                    </div>
+                </div>
+                <input type="hidden" id="selectedColor" value="#007AFF">
+            </div>
+            
+            <label style="margin-bottom: 15px;">Účastníci:</label>
+            <div class="user-selection-wrapper">
+                <input type="text" id="userSearchInput" placeholder="🔍 Hledat jméno..." onkeyup="CalendarController.filterUsers()">
+                
+                <div id="userListContainer" class="user-list">
+                    </div>
+            </div>
+            
+            <input type="hidden" id="selectedDate">
+            
+            <div class="modal-actions">
+                <button id="deleteBtn" onclick="CalendarController.deleteReminder()" style="background: rgba(255,59,48,0.1); color: #FF3B30; display: none;">Smazat</button>
+                <div style="flex-grow: 1;"></div>
+                <button onclick="CalendarController.closeModal()">Zrušit</button>
+                <button id="saveReminderBtn" onclick="CalendarController.saveOrUpdate()" class="primary-btn">Uložit</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="reminderActionMenu" class="action-menu">
+        <button onclick="CalendarController.handleMenuEdit()">✏️ Upravit</button>
+        <button onclick="CalendarController.handleMenuDelete()" class="delete-opt">🗑️ Smazat</button>
+    </div>
+
+    <script type="module" src="script/main.js"></script>
+    <div id="toastContainer" class="toast-container"></div>
+
+</body>
+</html>
