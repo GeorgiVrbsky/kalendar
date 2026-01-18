@@ -29,12 +29,14 @@ public class Reminder {
     private LocalDate reminderDate;
 
     @Column(name = "reminder_time")
-    private LocalTime reminderTime; // Může být null (pokud je to celý den)
+    private LocalTime reminderTime;
 
     @Column(name = "is_all_day", nullable = false)
-    private boolean allDay = false; // Výchozí je, že to má čas
+    private boolean allDay = false;
 
     private String color;
+
+    private String owner;
 
     @ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @JoinTable(
@@ -46,13 +48,14 @@ public class Reminder {
 
     public Reminder() {}
 
-    public Reminder(String title, String description, LocalDate reminderDate, LocalTime reminderTime, boolean allDay, String color) {
+    public Reminder(String title, String description, LocalDate reminderDate, LocalTime reminderTime, boolean allDay, String color, String owner) {
         this.title = title;
         this.description = description;
         this.reminderDate = reminderDate;
         this.reminderTime = reminderTime;
         this.allDay = allDay;
         this.color = color;
+        this.owner = owner;
     }
 
     public void addParticipant(User user) {

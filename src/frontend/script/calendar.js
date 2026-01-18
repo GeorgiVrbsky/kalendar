@@ -2,7 +2,6 @@ import { Model } from './api.js';
 import { State } from './state.js';
 import { showToast } from './utils.js';
 
-// --- POMOCNÁ FUNKCE PRO BARVY ---
 function hexToRgba(hex, alpha) {
     let r = 0, g = 0, b = 0;
     if (hex.length === 4) {
@@ -22,17 +21,26 @@ export const CalendarController = {
     allUsersCache: [],
     selectedUsernames: [],
     
-    // Data pro filtrování a hledání
     cachedReminders: [],
     currentFilterColor: 'ALL',
-    currentSearchText: '', // Pro vyhledávání
+    currentSearchText: '', 
     
     renderId: 0,
-    activeMenuReminder: null, // Pro akční menu
+    activeMenuReminder: null, 
+    currentEditingReminder: null,
+
+    // --- KONTROLA VLASTNICTVÍ ---
+    isOwner(reminder) {
+        const currentUser = State.currentUser.username;
+        // Ošetření různých formátů, které může backend poslat
+        if (typeof reminder.isOwner === 'boolean') return reminder.isOwner;
+        if (reminder.owner && typeof reminder.owner === 'object') return reminder.owner.username === currentUser;
+        if (typeof reminder.owner === 'string') return reminder.owner === currentUser;
+        return false;
+    },
 
     init() { 
         this.render(); 
-        // Zavření menu při kliknutí jinam
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.action-menu') && !e.target.closest('.reminder-tag')) {
                 this.closeActionMenu();
@@ -51,7 +59,7 @@ export const CalendarController = {
         this.render();
     },
 
-    // --- HLAVNÍ FUNKCE VYKRESLOVÁNÍ ---
+    // --- VYKRESLOVÁNÍ ---
     async render() {
         const myRenderId = ++this.renderId;
         const grid = document.getElementById('calendarGrid');
@@ -67,7 +75,6 @@ export const CalendarController = {
         const firstDayIndex = new Date(year, month, 1).getDay(); 
         const emptyCells = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
 
-        // Prázdné buňky
         for(let j=0; j<emptyCells; j++) {
             const empty = document.createElement('div');
             empty.className = 'day-cell';
@@ -75,7 +82,6 @@ export const CalendarController = {
             grid.appendChild(empty);
         }
 
-        // Cyklus dní
         for (let i = 1; i <= daysInMonth; i++) {
             if (this.renderId !== myRenderId) return;
 
@@ -87,7 +93,7 @@ export const CalendarController = {
             const cell = document.createElement('div');
             cell.className = 'day-cell';
 
-            // Drag & Drop
+            // Drag & Drop zóna
             cell.ondragover = (e) => { e.preventDefault(); cell.classList.add('drag-over'); };
             cell.ondragleave = () => { cell.classList.remove('drag-over'); };
             cell.ondrop = (e) => {
@@ -122,8 +128,12 @@ export const CalendarController = {
             itemsToShow.forEach(rem => {
                 const div = document.createElement('div');
                 div.className = 'reminder-tag';
-                div.draggable = true;
                 
+                const isOwner = this.isOwner(rem);
+                // Drag & Drop povolen jen Ownerovi
+                div.draggable = isOwner;
+                if (!isOwner) div.style.cursor = 'pointer';
+
                 div.ondragstart = (e) => {
                     e.dataTransfer.setData('text/plain', JSON.stringify(rem));
                     setTimeout(() => div.classList.add('dragging'), 0);
@@ -138,17 +148,16 @@ export const CalendarController = {
                 div.style.borderLeft = `3px solid ${tagColor}`;
                 
                 if (rem.allDay) {
-                    div.innerText = rem.title; // Secure: innerText
+                    div.innerText = rem.title; 
                     div.style.backgroundColor = tagColor; 
                     div.style.color = "#fff";
                 } else {
                     const timeShort = rem.reminderTime ? rem.reminderTime.substring(0, 5) : "";
-                    div.innerText = `${timeShort} ${rem.title}`; // Secure: innerText
+                    div.innerText = `${timeShort} ${rem.title}`; 
                     div.style.color = 'var(--text-main)';
                     div.style.backgroundColor = hexToRgba(tagColor, 0.15);
                 }
 
-                // Ikonka pro více účastníků
                 if (rem.participants.length > 1) {
                     const icon = document.createElement('span');
                     icon.innerText = ' 👥';
@@ -156,29 +165,20 @@ export const CalendarController = {
                     div.appendChild(icon);
                 }
 
-                // --- BEZPEČNÝ TOOLTIP ---
+                // Tooltip s vlastníkem
                 const tooltip = document.createElement('span');
                 tooltip.className = 'reminder-tooltip';
-                tooltip.innerText = rem.title; // Název bezpečně
+                tooltip.innerText = rem.title; 
                 
-                if (rem.participants.length > 1) {
-                    const peopleSpan = document.createElement('div');
-                    peopleSpan.style.fontSize = '10px';
-                    peopleSpan.style.color = '#ccc';
-                    peopleSpan.innerText = `👥 ${rem.participants.length} lidé`;
-                    tooltip.appendChild(peopleSpan);
-                }
-                
-                if (rem.description) {
-                    const descSpan = document.createElement('div');
-                    descSpan.style.fontSize = '10px';
-                    descSpan.style.color = '#ccc';
-                    descSpan.style.marginTop = '4px';
-                    descSpan.innerText = rem.description; // Popis bezpečně (innerText)
-                    tooltip.appendChild(descSpan);
+                let ownerName = (typeof rem.owner === 'object') ? rem.owner.username : rem.owner;
+                if (ownerName) {
+                    const oSpan = document.createElement('div');
+                    oSpan.style.fontSize = '10px';
+                    oSpan.style.color = '#ccc';
+                    oSpan.innerText = `👑 ${ownerName}`;
+                    tooltip.appendChild(oSpan);
                 }
                 div.appendChild(tooltip);
-                // -------------------------
 
                 div.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -200,13 +200,38 @@ export const CalendarController = {
         }
     },
 
+    // --- MENU (Bublina) ---
     openActionMenu(e, reminder, dateSql) {
         this.activeMenuReminder = { ...reminder, dateSql };
         const menu = document.getElementById('reminderActionMenu');
         
-        const deleteBtn = menu.querySelector('.delete-opt');
-        const isShared = reminder.participants.length > 1;
-        deleteBtn.innerHTML = isShared ? '👋 Opustit událost' : '🗑️ Smazat';
+        // Zde si musíte zajistit, že máte v HTML ID pro tlačítka v menu
+        // Předpokládám strukturu: 
+        // <div id="reminderActionMenu"> <button id="menuEditBtn">...</button> <button id="menuDeleteBtn">...</button> </div>
+        
+        // Pokud nemáte ID, najdeme je podle třídy, ale bezpečnější je ID. 
+        // Pro kompatibilitu s vaším předchozím kódem zkusím najít tlačítka.
+        // TIP: V index.html přidejte id="menuEditBtn" a id="menuDeleteBtn"
+        
+        const isOwner = this.isOwner(reminder);
+        
+        // Hledání tlačítek (upravte selektory dle vašeho HTML, pokud nemáte ID)
+        let editBtn = document.getElementById('menuEditBtn');
+        let deleteBtn = document.getElementById('menuDeleteBtn');
+
+        // Fallback pokud nemáte ID v HTML (najde první a druhé tlačítko)
+        if (!editBtn) editBtn = menu.querySelector('button:first-child');
+        if (!deleteBtn) deleteBtn = menu.querySelector('button:last-child');
+
+        if (isOwner) {
+            editBtn.innerHTML = '✏️ Upravit';
+            deleteBtn.innerHTML = '🗑️ Smazat';
+            deleteBtn.style.color = '#FF3B30';
+        } else {
+            editBtn.innerHTML = '👁️ Detail';
+            deleteBtn.innerHTML = '👋 Odejít';
+            deleteBtn.style.color = '#FF9500';
+        }
 
         menu.style.display = 'flex';
         let top = e.clientY + 10;
@@ -232,32 +257,159 @@ export const CalendarController = {
     async handleMenuDelete() {
         if (!this.activeMenuReminder) return;
         const rem = this.activeMenuReminder;
+        const isOwner = this.isOwner(rem);
 
-        if (rem.participants.length > 1) {
-            await this.leaveReminder(rem);
-        } else {
-            if (confirm(`Opravdu smazat "${rem.title}"?`)) {
-                await Model.deleteReminder(rem.id);
-                showToast("Smazáno.", 'success');
+        // Text potvrzení podle role
+        const msg = isOwner 
+            ? `Opravdu smazat "${rem.title}"? Událost bude odstraněna všem.` 
+            : `Chcete opustit událost "${rem.title}"?`;
+
+        if (confirm(msg)) {
+            // Voláme DELETE endpoint. Backend rozhodne (Delete vs Leave)
+            if (await Model.deleteReminder(rem.id)) {
+                showToast(isOwner ? "Smazáno." : "Opustili jste událost.", 'success');
                 this.render();
+            } else {
+                showToast("Chyba při zpracování.", 'error');
             }
         }
         this.closeActionMenu();
     },
 
-    // --- SEZNAM VŠECH ÚKOLŮ ---
+    // --- MODAL (Editace / Detail) ---
+    async openEditModal(reminder, dateStr) {
+        this.resetModal();
+        this.currentEditingReminder = reminder; 
+
+        const isOwner = this.isOwner(reminder);
+
+        document.getElementById('modalTitle').innerText = isOwner ? "Upravit událost" : "Detail události";
+        document.getElementById('reminderId').value = reminder.id;
+        document.getElementById('reminderTitle').value = reminder.title;
+        document.getElementById('reminderDesc').value = reminder.description || "";
+        document.getElementById('selectedDate').value = dateStr;
+
+        // --- ZAMČENÍ POLÍ PRO HOSTA ---
+        const inputsToLock = ['reminderTitle', 'reminderDesc', 'reminderTime', 'reminderAllDay', 'userSearchInput', 'customColorInput'];
+        inputsToLock.forEach(id => {
+            const el = document.getElementById(id);
+            if(el) el.disabled = !isOwner;
+        });
+
+        const colorContainer = document.querySelector('.color-options');
+        if (colorContainer) {
+            colorContainer.style.pointerEvents = isOwner ? 'auto' : 'none';
+            colorContainer.style.opacity = isOwner ? '1' : '0.6';
+        }
+
+        // Tlačítka dole
+        const deleteBtn = document.getElementById('deleteBtn');
+        const saveBtn = document.getElementById('saveReminderBtn');
+        deleteBtn.style.display = 'block'; 
+
+        if (isOwner) {
+            deleteBtn.innerText = "Smazat";
+            deleteBtn.style.color = "#FF3B30";
+            saveBtn.style.display = 'block'; 
+        } else {
+            deleteBtn.innerText = "Opustit událost";
+            deleteBtn.style.color = "#FF9500";
+            saveBtn.style.display = 'none'; // Host nemůže ukládat
+        }
+
+        // Nastavení hodnot formuláře
+        const savedColor = reminder.color || '#007AFF'; 
+        document.getElementById('selectedColor').value = savedColor;
+        document.getElementById('customColorInput').value = savedColor;
+        document.querySelectorAll('.color-circle').forEach(el => el.classList.remove('selected'));
+        const matchingCircle = document.querySelector(`.color-circle[data-color="${savedColor}"]`);
+        
+        const labelSpan = document.getElementById('activeColorLabel');
+        if (matchingCircle) {
+            matchingCircle.classList.add('selected');
+            if(labelSpan) labelSpan.innerText = matchingCircle.getAttribute('data-name');
+        } else if(labelSpan) {
+            labelSpan.innerText = "Vlastní";
+        }
+
+        document.getElementById('reminderAllDay').checked = reminder.allDay;
+        const timeInput = document.getElementById('reminderTime');
+        if (timeInput) timeInput.value = reminder.reminderTime ? reminder.reminderTime.substring(0, 5) : '';
+        this.toggleTimeInput();
+
+        const participants = reminder.participants.map(p => p.username).filter(n => n !== State.currentUser.username);
+        await this.prepareUserList(participants);
+        
+        // Zamčení seznamu účastníků pro hosta
+        if (!isOwner) {
+            const userContainer = document.getElementById('userListContainer');
+            if(userContainer) userContainer.style.pointerEvents = 'none';
+        }
+
+        this.validateForm();
+        this.showModal();
+    },
+
+    // --- ULOŽENÍ ---
+    async saveOrUpdate() {
+        // Bezpečnostní pojistka na frontendu
+        if (this.currentEditingReminder && !this.isOwner(this.currentEditingReminder)) return;
+
+        const id = document.getElementById('reminderId').value;
+        const title = document.getElementById('reminderTitle').value;
+        const color = document.getElementById('selectedColor').value;
+        const desc = document.getElementById('reminderDesc').value;
+        const date = document.getElementById('selectedDate').value;
+        const timeVal = document.getElementById('reminderTime').value;
+        const allDay = document.getElementById('reminderAllDay').checked;
+        const timeToSend = (timeVal && !allDay) ? timeVal + ":00" : null;
+
+        if (!title) return showToast("Zadejte název události!", 'error');
+
+        const finalUsernames = [...this.selectedUsernames];
+        if (!finalUsernames.includes(State.currentUser.username)) finalUsernames.push(State.currentUser.username);
+
+        const data = { title, description: desc, date, time: timeToSend, allDay, usernames: finalUsernames, color };
+        
+        if (id ? await Model.updateReminder(id, data) : await Model.saveReminder(data)) {
+            showToast("Uloženo!", 'success');
+            this.closeModal();
+            this.render();
+        } else {
+            showToast("Chyba při ukládání.", 'error');
+        }
+    },
+
+    // --- SMAZÁNÍ / ODCHOD (z Modalu) ---
+    async deleteReminder() {
+        const id = document.getElementById('reminderId').value;
+        if (!id) return;
+        
+        const isOwner = this.currentEditingReminder ? this.isOwner(this.currentEditingReminder) : true;
+        const msg = isOwner ? "Opravdu smazat? Zmizí všem." : "Opustit tuto událost?";
+
+        if (confirm(msg)) {
+            if (await Model.deleteReminder(id)) {
+                showToast(isOwner ? "Smazáno." : "Opustili jste událost.", 'success');
+                this.closeModal();
+                this.render();
+            } else {
+                showToast("Chyba při zpracování.", 'error');
+            }
+        }
+    },
+
+    // --- OSTATNÍ FUNKCE (Search, Move, Prepare...) ---
+    
     async showAllReminders() {
         const modal = document.getElementById('allRemindersModal');
         document.getElementById('allRemindersList').innerHTML = '<div style="text-align:center;">Načítám...</div>';
-        
-        // Reset hledání
         this.currentSearchText = '';
         const searchInput = document.getElementById('searchAllInput');
         if (searchInput) searchInput.value = '';
 
         modal.style.display = 'flex';
         this.cachedReminders = await Model.getAllReminders();
-        this.currentFilterColor = 'ALL';
         this.renderFilters();
         this.renderFilteredList();
     },
@@ -280,12 +432,9 @@ export const CalendarController = {
         });
     },
 
-    // --- BEZPEČNÉ VYKRESLENÍ SEZNAMU (DOM Manipulation) ---
     renderFilteredList() {
         const list = document.getElementById('allRemindersList');
-        list.innerHTML = ''; // Vyčistit starý obsah
-
-        // Logika filtrování (Barva + Text)
+        list.innerHTML = '';
         let filtered = this.cachedReminders.filter(rem => {
             const rColor = rem.color || '#007AFF';
             const matchColor = (this.currentFilterColor === 'ALL') || (rColor.toLowerCase() === this.currentFilterColor.toLowerCase());
@@ -300,25 +449,14 @@ export const CalendarController = {
 
         filtered.forEach(rem => {
            const d = document.createElement('div');
-           d.style.padding = '10px';
-           d.style.background = 'var(--bg-input)';
-           d.style.borderRadius = '8px';
-           d.style.borderLeft = `4px solid ${rem.color || '#007AFF'}`;
-           d.style.cursor = 'pointer';
-           d.style.marginBottom = '10px';
+           d.style.cssText = `padding:10px;background:var(--bg-input);border-radius:8px;border-left:4px solid ${rem.color||'#007AFF'};cursor:pointer;margin-bottom:10px`;
+           
+           const t = document.createElement('div'); t.style.fontWeight = 'bold'; t.innerText = rem.title;
+           d.appendChild(t);
 
-           // Název (Bezpečně přes innerText)
-           const titleDiv = document.createElement('div');
-           titleDiv.style.fontWeight = 'bold';
-           titleDiv.innerText = rem.title; 
-           d.appendChild(titleDiv);
-
-           // Datum
-           const dateDiv = document.createElement('div');
-           dateDiv.style.fontSize = '12px';
-           dateDiv.style.color = '#888';
-           dateDiv.innerText = new Date(rem.reminderDate).toLocaleDateString('cs-CZ');
-           d.appendChild(dateDiv);
+           const dt = document.createElement('div'); dt.style.fontSize = '12px'; dt.style.color = '#888';
+           dt.innerText = new Date(rem.reminderDate).toLocaleDateString('cs-CZ');
+           d.appendChild(dt);
            
            d.onclick = () => {
                document.getElementById('allRemindersModal').style.display = 'none';
@@ -328,38 +466,25 @@ export const CalendarController = {
         });
     },
 
-    // --- BEZPEČNÝ DETAIL DNE ---
     openDayDetail(date, rems) {
         const modal = document.getElementById('allRemindersModal');
         const list = document.getElementById('allRemindersList');
-        const title = modal.querySelector('h3');
-        title.innerText = `Úkoly: ${new Date(date).toLocaleDateString('cs-CZ')}`;
-
-        document.getElementById('filterContainer').innerHTML = ''; // Skrýt filtry pro detail dne
+        modal.querySelector('h3').innerText = `Úkoly: ${new Date(date).toLocaleDateString('cs-CZ')}`;
+        document.getElementById('filterContainer').innerHTML = '';
         const searchInput = document.getElementById('searchAllInput');
-        if (searchInput) searchInput.style.display = 'none'; // Skrýt hledání pro detail dne
+        if (searchInput) searchInput.style.display = 'none';
 
         list.innerHTML = '';
         modal.style.display = 'flex';
 
         rems.forEach(rem => {
            const d = document.createElement('div');
-           d.style.padding = '10px';
-           d.style.background = 'var(--bg-input)';
-           d.style.borderRadius = '8px';
-           d.style.borderLeft = `4px solid ${rem.color || '#007AFF'}`;
-           d.style.cursor = 'pointer';
-           d.style.marginBottom = '10px';
-
-           // Název (Bezpečně)
-           const titleDiv = document.createElement('div');
-           titleDiv.style.fontWeight = 'bold';
-           titleDiv.innerText = rem.title;
-           d.appendChild(titleDiv);
+           d.style.cssText = `padding:10px;background:var(--bg-input);border-radius:8px;border-left:4px solid ${rem.color||'#007AFF'};cursor:pointer;margin-bottom:10px`;
+           const t = document.createElement('div'); t.style.fontWeight = 'bold'; t.innerText = rem.title;
+           d.appendChild(t);
            
            d.onclick = () => {
                modal.style.display = 'none';
-               // Znovu zobrazit hledání pro příště
                if (searchInput) searchInput.style.display = 'block';
                this.openEditModal(rem, date);
            };
@@ -367,85 +492,40 @@ export const CalendarController = {
         });
     },
 
-    // --- OSTATNÍ FUNKCE (Formuláře, Update, Delete) ---
-    selectColor(el){
-        document.querySelectorAll('.color-circle').forEach(e=>e.classList.remove('selected'));
-        el.classList.add('selected');
-        document.getElementById('selectedColor').value=el.dataset.color;
-        if(document.getElementById('activeColorLabel')) document.getElementById('activeColorLabel').innerText=el.dataset.name;
-    },
-    selectCustomColor(inp){
-        document.querySelectorAll('.color-circle').forEach(e=>e.classList.remove('selected'));
-        document.getElementById('selectedColor').value=inp.value;
-        if(document.getElementById('activeColorLabel')) document.getElementById('activeColorLabel').innerText="Vlastní";
-    },
-
-    async leaveReminder(reminder) {
-        const remainingUsers = reminder.participants
-            .map(p => p.username)
-            .filter(u => u !== State.currentUser.username);
-
-        const updateData = {
-            title: reminder.title, description: reminder.description || "", color: reminder.color,
-            allDay: reminder.allDay, time: reminder.reminderTime, date: reminder.reminderDate,
-            usernames: remainingUsers
-        };
-        if (await Model.updateReminder(reminder.id, updateData)) {
-            showToast("Opustili jste událost.", 'success');
-            this.render();
-        } else {
-            showToast("Chyba při opouštění.", 'error');
-        }
-    },
-
-    async deleteReminder() {
-        const id = document.getElementById('reminderId').value;
-        if (!id) return;
+    async openCreateModal(dateStr) {
+        this.resetModal();
+        this.currentEditingReminder = null;
+        document.getElementById('modalTitle').innerText = "Nová událost";
+        document.getElementById('selectedDate').value = dateStr;
+        document.getElementById('deleteBtn').style.display = 'none';
+        document.getElementById('saveReminderBtn').style.display = 'block';
         
-        const isShared = this.selectedUsernames.length > 0;
-        if (isShared) {
-             if (confirm("Toto je sdílená událost. Chcete ji OPUSTIT?")) {
-                 // Sestavení objektu pro leaveReminder
-                 const title = document.getElementById('reminderTitle').value;
-                 const desc = document.getElementById('reminderDesc').value;
-                 const date = document.getElementById('selectedDate').value;
-                 const timeVal = document.getElementById('reminderTime').value;
-                 const allDay = document.getElementById('reminderAllDay').checked;
-                 const color = document.getElementById('selectedColor').value;
-                 const time = (timeVal && !allDay) ? timeVal + ":00" : null;
-                 const currentParticipants = [...this.selectedUsernames, State.currentUser.username].map(u => ({ username: u }));
-                 
-                 const dummyRem = { id, title, description: desc, reminderDate: date, reminderTime: time, allDay, color, participants: currentParticipants };
-                 await this.leaveReminder(dummyRem);
-                 this.closeModal();
-             }
-        } else {
-            if (confirm("Opravdu smazat tuto událost?")) {
-                if (await Model.deleteReminder(id)) {
-                    showToast("Smazáno.", 'success');
-                    this.closeModal();
-                    this.render();
-                } else {
-                    showToast("Chyba při mazání.", 'error');
-                }
-            }
-        }
-    },
+        ['reminderTitle', 'reminderDesc', 'reminderTime', 'reminderAllDay', 'userSearchInput', 'customColorInput'].forEach(id => {
+             const el = document.getElementById(id); if(el) el.disabled = false;
+        });
+        if(document.querySelector('.color-options')) document.querySelector('.color-options').style.pointerEvents='auto';
+        if(document.getElementById('userListContainer')) document.getElementById('userListContainer').style.pointerEvents='auto';
+        
+        const firstCircle = document.querySelector('.color-circle');
+        if(firstCircle) this.selectColor(firstCircle);
 
-    toggleTimeInput() {
-        const isAllDay = document.getElementById('reminderAllDay').checked;
         const timeInput = document.getElementById('reminderTime');
-        if (isAllDay) {
-            timeInput.value = '';
-            timeInput.disabled = true;
-            timeInput.style.opacity = '0.5';
-        } else {
-            timeInput.disabled = false;
-            timeInput.style.opacity = '1';
-        }
+        if (timeInput) timeInput.value = this.getSmartTime(); 
+
+        document.getElementById('reminderAllDay').checked = false;
+        this.toggleTimeInput();
+
+        await this.prepareUserList([]);
+        this.validateForm();
+        this.showModal();
+        setTimeout(() => document.getElementById('reminderTitle').focus(), 50);
     },
 
     async moveReminder(reminder, newDate) {
+        if (!this.isOwner(reminder)) {
+            showToast("Nemáte právo přesunout tuto událost.", 'error');
+            return;
+        }
         if (reminder.reminderDate === newDate) return;
         const updatedData = {
             title: reminder.title, description: reminder.description, color: reminder.color,
@@ -467,69 +547,21 @@ export const CalendarController = {
         return `${hours.toString().padStart(2, '0')}:00`;
     },
 
+    toggleTimeInput() {
+        const isAllDay = document.getElementById('reminderAllDay').checked;
+        const timeInput = document.getElementById('reminderTime');
+        if (isAllDay) {
+            timeInput.value = ''; timeInput.disabled = true; timeInput.style.opacity = '0.5';
+        } else {
+            timeInput.disabled = false; timeInput.style.opacity = '1';
+        }
+    },
+
     validateForm() {
         const titleInput = document.getElementById('reminderTitle');
         const saveBtn = document.getElementById('saveReminderBtn');
         if (!titleInput || !saveBtn) return;
         saveBtn.disabled = titleInput.value.trim() === "";
-    },
-
-    async openCreateModal(dateStr) {
-        this.resetModal();
-        document.getElementById('modalTitle').innerText = "Nová událost";
-        document.getElementById('selectedDate').value = dateStr;
-        document.getElementById('deleteBtn').style.display = 'none';
-        
-        const firstCircle = document.querySelector('.color-circle');
-        if(firstCircle) this.selectColor(firstCircle);
-
-        const timeInput = document.getElementById('reminderTime');
-        if (timeInput) timeInput.value = this.getSmartTime(); 
-
-        document.getElementById('reminderAllDay').checked = false;
-        this.toggleTimeInput();
-
-        await this.prepareUserList([]);
-        this.validateForm();
-        this.showModal();
-        setTimeout(() => document.getElementById('reminderTitle').focus(), 50);
-    },
-
-    async openEditModal(reminder, dateStr) {
-        this.resetModal();
-        document.getElementById('modalTitle').innerText = "Upravit událost";
-        document.getElementById('reminderId').value = reminder.id;
-        document.getElementById('reminderTitle').value = reminder.title;
-        document.getElementById('reminderDesc').value = reminder.description || "";
-        document.getElementById('selectedDate').value = dateStr;
-        
-        const deleteBtn = document.getElementById('deleteBtn');
-        deleteBtn.style.display = 'block'; 
-        const isShared = reminder.participants.length > 1;
-        deleteBtn.innerText = isShared ? "Opustit událost" : "Smazat";
-
-        const savedColor = reminder.color || '#007AFF'; 
-        document.getElementById('selectedColor').value = savedColor;
-        document.getElementById('customColorInput').value = savedColor;
-
-        document.querySelectorAll('.color-circle').forEach(el => el.classList.remove('selected'));
-        const matchingCircle = document.querySelector(`.color-circle[data-color="${savedColor}"]`);
-        const labelSpan = document.getElementById('activeColorLabel');
-
-        if (matchingCircle) {
-            matchingCircle.classList.add('selected');
-            if(labelSpan) labelSpan.innerText = matchingCircle.getAttribute('data-name');
-        } else if(labelSpan) labelSpan.innerText = "Vlastní barva";
-
-        document.getElementById('reminderAllDay').checked = reminder.allDay;
-        const timeInput = document.getElementById('reminderTime');
-        if (timeInput) timeInput.value = reminder.reminderTime ? reminder.reminderTime.substring(0, 5) : '';
-        this.toggleTimeInput();
-
-        const participants = reminder.participants.map(p => p.username).filter(n => n !== State.currentUser.username);
-        await this.prepareUserList(participants);
-        this.validateForm();
-        this.showModal();
     },
 
     showModal() {
@@ -552,30 +584,6 @@ export const CalendarController = {
         setTimeout(() => modal.style.display = 'none', 300);
     },
 
-    async saveOrUpdate() {
-        const id = document.getElementById('reminderId').value;
-        const title = document.getElementById('reminderTitle').value;
-        const color = document.getElementById('selectedColor').value;
-        const desc = document.getElementById('reminderDesc').value;
-        const date = document.getElementById('selectedDate').value;
-        const timeVal = document.getElementById('reminderTime').value;
-        const allDay = document.getElementById('reminderAllDay').checked;
-        const timeToSend = (timeVal && !allDay) ? timeVal + ":00" : null;
-
-        if (!title) return showToast("Zadejte název události!", 'error');
-        const finalUsernames = [...this.selectedUsernames];
-        if (!finalUsernames.includes(State.currentUser.username)) finalUsernames.push(State.currentUser.username);
-        const data = { title, description: desc, date, time: timeToSend, allDay, usernames: finalUsernames, color };
-        
-        if (id ? await Model.updateReminder(id, data) : await Model.saveReminder(data)) {
-            showToast("Uloženo!", 'success');
-            this.closeModal();
-            this.render();
-        } else {
-            showToast("Chyba při ukládání.", 'error');
-        }
-    },
-
     async prepareUserList(preselectedNames = []) {
         if (this.allUsersCache.length === 0) this.allUsersCache = await Model.getAllUsers();
         this.selectedUsernames = preselectedNames;
@@ -590,14 +598,13 @@ export const CalendarController = {
             .forEach(user => {
                 const div = document.createElement('div');
                 div.className = `user-item ${this.selectedUsernames.includes(user.username) ? 'selected' : ''}`;
-                div.innerHTML = `<div class="user-checkbox"></div><span>${user.username}</span>`; // Zde je user.username, je to bezpečné (text v span)
-                // Ale pro jistotu:
-                const spanName = document.createElement('span');
-                spanName.innerText = user.username;
+                
+                // Bezpečný rendering jména
                 div.innerHTML = '';
                 const cb = document.createElement('div'); cb.className = 'user-checkbox';
+                const nameSpan = document.createElement('span'); nameSpan.innerText = user.username;
                 div.appendChild(cb);
-                div.appendChild(spanName);
+                div.appendChild(nameSpan);
                 
                 div.onclick = () => {
                     this.selectedUsernames.includes(user.username) ? 
@@ -609,5 +616,18 @@ export const CalendarController = {
             });
     },
 
-    filterUsers() { this.renderUserList(); }
+    filterUsers() { this.renderUserList(); },
+    
+    selectColor(el){
+        document.querySelectorAll('.color-circle').forEach(e=>e.classList.remove('selected'));
+        el.classList.add('selected');
+        document.getElementById('selectedColor').value=el.dataset.color;
+        if(document.getElementById('activeColorLabel')) document.getElementById('activeColorLabel').innerText=el.dataset.name;
+    },
+    
+    selectCustomColor(inp){
+        document.querySelectorAll('.color-circle').forEach(e=>e.classList.remove('selected'));
+        document.getElementById('selectedColor').value=inp.value;
+        if(document.getElementById('activeColorLabel')) document.getElementById('activeColorLabel').innerText="Vlastní";
+    }
 };
