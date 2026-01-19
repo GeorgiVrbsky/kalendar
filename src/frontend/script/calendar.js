@@ -407,6 +407,12 @@ export const CalendarController = {
         this.currentSearchText = '';
         const searchInput = document.getElementById('searchAllInput');
         if (searchInput) searchInput.value = '';
+        searchInput.style.display = 'flex';
+
+        // const reminderTitle = document.getElementById('remindersWindowTitle');
+        // reminderTitle.value = 'Vsechny me ukoly';
+
+        document.getElementById('remindersWindowTitle').textContent = "Vsechny me ukoly";
 
         modal.style.display = 'flex';
         this.cachedReminders = await Model.getAllReminders();
@@ -459,7 +465,7 @@ export const CalendarController = {
            d.appendChild(dt);
            
            d.onclick = () => {
-               document.getElementById('allRemindersModal').style.display = 'none';
+               document.getElementById('allRemindersModal').style.display = 'none'; //tady to zkousim
                this.openEditModal(rem, rem.reminderDate);
            };
            list.appendChild(d);
